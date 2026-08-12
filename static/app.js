@@ -33,6 +33,10 @@ function monthStr() {
   return todayStr().slice(0, 7);
 }
 
+function monthStart() {
+  return todayStr().slice(0, 8) + "01";
+}
+
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -149,10 +153,36 @@ function thumbHTML(url, label) {
 function renderPlans() {
   const list = $("#planList");
   if (!state.plans.length) {
-    list.innerHTML = `<div class="empty-tip">当前范围没有计划。点右上角"新增计划"，或"识别上传"直接拍照归档。</div>`;
+    list.innerHTML = `<div class="empty-tip">
+      当前日期范围没有计划。可以<a href="#" data-act="showmonth">查看本月</a>或
+      <a href="#" data-act="showall">查看全部计划</a>；
+      也可以点右上角"新增计划"，或"识别上传"直接拍照归档。
+    </div>`;
     return;
   }
   list.innerHTML = state.plans.map(planCardHTML).join("");
+}
+
+function includeDateInFilter(d) {
+  if (!d) return;
+  if (!state.filterFrom || d < state.filterFrom) state.filterFrom = d;
+  if (!state.filterTo || d > state.filterTo) state.filterTo = d;
+  $("#filterFrom").value = state.filterFrom;
+  $("#filterTo").value = state.filterTo;
+}
+
+function setMonthFilter() {
+  state.filterFrom = monthStart();
+  state.filterTo = todayStr();
+  $("#filterFrom").value = state.filterFrom;
+  $("#filterTo").value = state.filterTo;
+}
+
+function clearFilter() {
+  state.filterFrom = "";
+  state.filterTo = "";
+  $("#filterFrom").value = "";
+  $("#filterTo").value = "";
 }
 
 /* ---------------- 计划表单 ---------------- */
@@ -255,14 +285,16 @@ async function savePlan(e) {
   btn.disabled = true;
   try {
     if (state.editingId) {
-      await api(`/api/plans/${state.editingId}`, {
+      const data = await api(`/api/plans/${state.editingId}`, {
         method: "PUT",
         body: JSON.stringify(payload),
       });
       toast("已保存");
+      includeDateInFilter(data.plan.load_date);
     } else {
-      await api("/api/plans", { method: "POST", body: JSON.stringify(payload) });
+      const data = await api("/api/plans", { method: "POST", body: JSON.stringify(payload) });
       toast("已新增计划");
+      includeDateInFilter(data.plan.load_date);
     }
     hideModal("planModal");
     await loadPlans();
@@ -448,9 +480,10 @@ async function confirmAttach() {
   const btn = $("#btnConfirmAttach");
   btn.disabled = true;
   try {
-    await api("/api/attach", { method: "POST", body: JSON.stringify(payload) });
+    const data = await api("/api/attach", { method: "POST", body: JSON.stringify(payload) });
     toast(`已把${DOC_LABEL[docType]}填入计划`);
     hideModal("ocrModal");
+    includeDateInFilter(data.plan.load_date);
     await loadPlans();
   } catch (err) {
     toast(err.message, "warn");
@@ -482,6 +515,7 @@ async function newPlanFromOcr() {
     await api("/api/attach", { method: "POST", body: JSON.stringify(attachPayload) });
     toast("已新建计划并填入图片");
     hideModal("ocrModal");
+    includeDateInFilter(p.load_date);
     await loadPlans();
   } catch (err) {
     toast(err.message, "warn");
@@ -598,6 +632,14 @@ function bindEvents() {
   });
 
   $("#planList").addEventListener("click", (e) => {
+    const link = e.target.closest("[data-act]");
+    if (link && (link.dataset.act === "showall" || link.dataset.act === "showmonth")) {
+      e.preventDefault();
+      if (link.dataset.act === "showall") clearFilter();
+      else setMonthFilter();
+      loadPlans();
+      return;
+    }
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
     const id = btn.dataset.id;
@@ -674,6 +716,8 @@ function bindEvents() {
 
 /* ---------------- 启动 ---------------- */
 async function init() {
+  state.filterFrom = monthStart();
+  state.filterTo = todayStr();
   $("#filterFrom").value = state.filterFrom;
   $("#filterTo").value = state.filterTo;
   $("#reconDate").value = todayStr();
