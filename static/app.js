@@ -193,7 +193,7 @@ function fallbackCopy(text) {
 }
 
 async function copyPlan(id) {
-  const p = state.plans.find((x) => x.id === id);
+  const p = await getPlanAny(id);
   if (!p) return;
   const text = planCopyText(p);
   let ok = false;
@@ -219,6 +219,21 @@ function renderPlans() {
     return;
   }
   list.innerHTML = state.plans.map(planCardHTML).join("");
+}
+
+function findPlan(id) {
+  return state.plans.find((x) => x.id === id);
+}
+
+async function getPlanAny(id) {
+  const p = findPlan(id);
+  if (p) return p;
+  try {
+    const d = await api(`/api/plans/${id}`);
+    return d.plan || null;
+  } catch (e) {
+    return null;
+  }
 }
 
 function includeDateInFilter(d) {
@@ -356,6 +371,7 @@ async function savePlan(e) {
     }
     hideModal("planModal");
     await loadPlans();
+    refreshRecon();
   } catch (err) {
     toast(err.message, "warn");
   } finally {
@@ -364,12 +380,13 @@ async function savePlan(e) {
 }
 
 async function deletePlan(id) {
-  const p = state.plans.find((x) => x.id === id);
+  const p = await getPlanAny(id);
   if (!confirm(`确认删除计划 ${p?.truck_no || ""}（${p?.load_date || ""}）？删除后图片一并移除，不可恢复。`)) return;
   try {
     await api(`/api/plans/${id}`, { method: "DELETE" });
     toast("已删除");
     await loadPlans();
+    refreshRecon();
   } catch (err) {
     toast(err.message, "warn");
   }
@@ -711,6 +728,20 @@ function bindEvents() {
     }
   });
 
+  $("#reconTable").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-act]");
+    if (!btn || !btn.dataset.id) return;
+    const id = btn.dataset.id;
+    if (btn.dataset.act === "copy") {
+      copyPlan(id);
+    } else if (btn.dataset.act === "edit") {
+      const p = await getPlanAny(id);
+      if (p) openPlanForm(p);
+    } else if (btn.dataset.act === "del") {
+      deletePlan(id);
+    }
+  });
+
   $("#planForm").addEventListener("submit", savePlan);
   $("#btnParse").addEventListener("click", parsePaste);
   $("#pasteText").addEventListener("paste", () => setTimeout(parsePaste, 50));
@@ -775,6 +806,10 @@ function bindEvents() {
 }
 
 /* ---------------- 启动 ---------------- */
+function refreshRecon() {
+  if (!$("#view-recon").classList.contains("hidden")) loadRecon();
+}
+
 async function init() {
   state.filterFrom = monthStart();
   state.filterTo = todayStr();

@@ -164,6 +164,13 @@ function renderPlans() {
   list.innerHTML = state.plans.map(planCardHTML).join("");
 }
 
+function findPlan(id) {
+  return (
+    state.plans.find((x) => x.id === id) ||
+    state.allPlans.find((x) => x.id === id)
+  );
+}
+
 function includeDateInFilter(d) {
   if (!d) return;
   if (!state.filterFrom || d < state.filterFrom) state.filterFrom = d;
@@ -229,7 +236,7 @@ function fallbackCopy(text) {
 }
 
 async function copyPlan(id) {
-  const p = state.plans.find((x) => x.id === id);
+  const p = findPlan(id);
   if (!p) return;
   const text = planCopyText(p);
   let ok = false;
@@ -348,6 +355,7 @@ async function savePlan(e) {
     includeDateInFilter(saved.load_date);
     hideModal("planModal");
     await loadPlans();
+    refreshRecon();
   } catch (err) {
     toast(err.message, "warn");
   } finally {
@@ -356,12 +364,13 @@ async function savePlan(e) {
 }
 
 async function deletePlan(id) {
-  const p = state.plans.find((x) => x.id === id);
+  const p = findPlan(id);
   if (!confirm(`确认删除计划 ${p?.truck_no || ""}（${p?.load_date || ""}）？删除后图片一并移除，不可恢复。`)) return;
   try {
     await Storage.deletePlan(id);
     toast("已删除");
     await loadPlans();
+    refreshRecon();
   } catch (err) {
     toast(err.message, "warn");
   }
@@ -712,6 +721,20 @@ function bindEvents() {
     }
   });
 
+  $("#reconTable").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-act]");
+    if (!btn || !btn.dataset.id) return;
+    const id = btn.dataset.id;
+    if (btn.dataset.act === "copy") {
+      copyPlan(id);
+    } else if (btn.dataset.act === "edit") {
+      const p = findPlan(id);
+      if (p) openPlanForm(p);
+    } else if (btn.dataset.act === "del") {
+      deletePlan(id);
+    }
+  });
+
   $("#planForm").addEventListener("submit", savePlan);
   $("#btnParse").addEventListener("click", parsePaste);
   $("#pasteText").addEventListener("paste", () => setTimeout(parsePaste, 50));
@@ -776,6 +799,10 @@ function renderFromFilter() {
   state.plans = filterPlans();
   renderPlans();
   renderPlanChips();
+}
+
+function refreshRecon() {
+  if (!$("#view-recon").classList.contains("hidden")) loadRecon();
 }
 
 /* ---------------- 启动 ---------------- */
