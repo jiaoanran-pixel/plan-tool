@@ -4,4 +4,7 @@ __pycache__/
 data/
 ocr_helper
 tools/xlsx_verify/node_modules/
+tools/xlsx_verify/node_modules
+tools/static_test/node_modules/
+tools/static_test/node_modules
 *.log
