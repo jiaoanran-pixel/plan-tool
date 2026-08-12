@@ -70,6 +70,8 @@ tools/xlsx_verify/    Excel 导出校验工具
 
 如需一个手机、电脑点开即用的固定网址，可使用 `static-site/` 目录部署为静态网站（GitHub Pages / Netlify Drop / Cloudflare Pages 等均可）。
 
+- ✅ 当前线上地址：**https://jiaoanran-pixel.github.io/plan-tool/**
+
 - 部署步骤与数据说明见 [static-site/部署说明.md](static-site/部署说明.md)；
 - 注意：静态版数据保存在各设备浏览器中，**多设备不自动同步**，请定期"导出 Excel"备份；
 - 静态版 OCR 使用浏览器端识别（首次下载约 15MB 中文包、速度较慢）；本地版 OCR 更快更准，适合局域网内使用。
