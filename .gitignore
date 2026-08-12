@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+data/
+ocr_helper
+tools/xlsx_verify/node_modules/
+*.log

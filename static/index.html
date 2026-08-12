@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2563eb">
+  <title>车辆计划对账</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">🚛 车辆计划对账</div>
+    <nav class="tabs">
+      <button class="tab active" data-view="plans">计划</button>
+      <button class="tab" data-view="recon">对账</button>
+    </nav>
+  </header>
+
+  <main id="view-plans" class="view">
+    <section class="filter-bar">
+      <div class="filter-row">
+        <input type="date" id="filterFrom">
+        <span class="sep">至</span>
+        <input type="date" id="filterTo">
+        <input type="search" id="searchQ" placeholder="搜车号/站点/供应商">
+      </div>
+      <div class="actions">
+        <button class="btn ghost" id="btnOcr">📷 识别上传</button>
+        <button class="btn primary" id="btnNew">＋ 新增计划</button>
+      </div>
+    </section>
+    <section class="chips" id="planChips"></section>
+    <section id="planList" class="card-list"></section>
+  </main>
+
+  <main id="view-recon" class="view hidden">
+    <div class="recon-toolbar">
+      <div class="seg">
+        <button class="seg-btn active" data-mode="day">每日</button>
+        <button class="seg-btn" data-mode="month">每月</button>
+      </div>
+      <input type="date" id="reconDate">
+      <input type="month" id="reconMonth" class="hidden">
+      <button class="btn primary" id="btnExport">📥 导出 Excel</button>
+    </div>
+    <section class="chips" id="reconChips"></section>
+    <section id="reconTable"></section>
+  </main>
+</div>
+
+<!-- 计划表单弹窗 -->
+<div class="modal-mask hidden" id="planModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="planModalTitle">新增计划</h3>
+      <button class="close" data-close="planModal">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="paste-box">
+        <textarea id="pasteText" rows="3" placeholder="粘贴计划文本（如微信复制的内容），点「识别填充」自动填表"></textarea>
+        <button class="btn ghost" id="btnParse" type="button">✨ 识别填充</button>
+        <div id="parseWarnings" class="warnings"></div>
+      </div>
+      <form id="planForm">
+        <div class="field-grid">
+          <label>装车日期 *<input type="date" id="fLoadDate" required></label>
+          <label>车头号 *<input type="text" id="fTruckNo" placeholder="如 冀J0B318" required></label>
+          <label>气源地<input type="text" id="fGasSource" placeholder="如 正安"></label>
+          <label>供应商<input type="text" id="fSupplier" placeholder="如 浙江禾兴"></label>
+          <label>站点<input type="text" id="fStation" placeholder="如 宜章西东站"></label>
+          <label>计划到站日期<input type="text" id="fPlanArrive" placeholder="如 13号19点 或 2026-08-13"></label>
+          <label>价格(元/吨)<input type="number" step="0.01" id="fPrice" placeholder="如 5900"></label>
+          <label>净重(吨)<input type="number" step="0.001" id="fNetWeight" placeholder="卸车磅单OCR自动填，可改"></label>
+        </div>
+        <div class="optional">
+          <details>
+            <summary>更多信息（挂车号 / 司机 / 承运公司，可选）</summary>
+            <div class="field-grid">
+              <label>挂车号<input type="text" id="fTrailerNo" placeholder="如 冀JM09D挂"></label>
+              <label>司机姓名<input type="text" id="fDriverName"></label>
+              <label>司机电话<input type="text" id="fDriverPhone"></label>
+              <label>承运公司<input type="text" id="fCarrier"></label>
+            </div>
+          </details>
+        </div>
+        <label>备注<textarea id="fNote" rows="2"></textarea></label>
+        <div class="img-slots">
+          <div class="img-slot" data-type="load">
+            <div class="slot-title">装车磅单</div>
+            <div class="slot-body">
+              <img class="preview hidden" alt="装车磅单">
+              <input type="file" accept="image/*" capture="environment" hidden>
+            </div>
+            <div class="slot-btns">
+              <button type="button" class="slot-upload">拍照/上传</button>
+              <button type="button" class="slot-remove hidden">删除</button>
+            </div>
+          </div>
+          <div class="img-slot" data-type="unload">
+            <div class="slot-title">卸车磅单</div>
+            <div class="slot-body">
+              <img class="preview hidden" alt="卸车磅单">
+              <input type="file" accept="image/*" capture="environment" hidden>
+            </div>
+            <div class="slot-btns">
+              <button type="button" class="slot-upload">拍照/上传</button>
+              <button type="button" class="slot-remove hidden">删除</button>
+            </div>
+          </div>
+          <div class="img-slot" data-type="waybill">
+            <div class="slot-title">运单</div>
+            <div class="slot-body">
+              <img class="preview hidden" alt="运单">
+              <input type="file" accept="image/*" capture="environment" hidden>
+            </div>
+            <div class="slot-btns">
+              <button type="button" class="slot-upload">拍照/上传</button>
+              <button type="button" class="slot-remove hidden">删除</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn ghost" data-close="planModal">取消</button>
+          <button type="submit" class="btn primary">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- OCR 识别弹窗 -->
+<div class="modal-mask hidden" id="ocrModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>图片识别上传</h3>
+      <button class="close" data-close="ocrModal">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="ocr-upload">
+        <input type="file" id="ocrFile" accept="image/*" capture="environment">
+        <button class="btn primary" id="btnPickImage" type="button">📷 选择/拍摄单据图片</button>
+      </div>
+      <div id="ocrStatus" class="warnings"></div>
+      <div id="ocrResult" class="hidden">
+        <div class="ocr-summary" id="ocrSummary"></div>
+        <details id="ocrTextBox">
+          <summary>识别原文</summary>
+          <pre id="ocrText"></pre>
+        </details>
+        <div id="ocrMatch"></div>
+        <div id="ocrManual" class="hidden">
+          <div class="field-grid">
+            <label>单据类型
+              <select id="ocrDocType">
+                <option value="load">装车磅单</option>
+                <option value="unload">卸车磅单</option>
+                <option value="waybill">运单</option>
+              </select>
+            </label>
+            <label>关联计划
+              <select id="ocrPlanSel"></select>
+            </label>
+          </div>
+          <button class="btn ghost" id="btnNewFromOcr" type="button">＋ 用识别信息新建计划并填入</button>
+        </div>
+        <div class="modal-foot">
+          <button class="btn ghost" data-close="ocrModal">关闭</button>
+          <button class="btn primary" id="btnConfirmAttach" type="button">确认填入</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
