@@ -138,6 +138,7 @@ function planCardHTML(p) {
     <div class="card-foot">
       <span class="miss ${p.complete ? "ok" : ""}">${missTxt}</span>
       <div class="card-actions">
+        <button class="mini" data-act="copy" data-id="${p.id}">复制</button>
         <button class="mini" data-act="edit" data-id="${p.id}">编辑</button>
         <button class="mini danger" data-act="del" data-id="${p.id}">删除</button>
       </div>
@@ -148,6 +149,63 @@ function planCardHTML(p) {
 function thumbHTML(url, label) {
   if (!url) return `<div class="thumb empty">${label}</div>`;
   return `<div class="thumb"><img src="${esc(url)}" alt="${esc(label)}" loading="lazy"><span>${label}</span></div>`;
+}
+
+function planCopyText(p) {
+  const lines = [
+    `【运输计划】${p.load_date}`,
+    `车号：${p.truck_no}${p.trailer_no ? `（挂车：${p.trailer_no}）` : ""}`,
+  ];
+  if (p.gas_source) lines.push(`气源地：${p.gas_source}`);
+  if (p.supplier) lines.push(`供应商：${p.supplier}`);
+  if (p.station) lines.push(`站点：${p.station}`);
+  if (p.plan_arrive) lines.push(`计划到站：${p.plan_arrive}`);
+  if (p.price) lines.push(`价格：${p.price} 元/吨`);
+  if (p.net_weight) lines.push(`净重：${p.net_weight} 吨`);
+  if (p.amount) lines.push(`金额：${Number(p.amount).toLocaleString("zh-CN")} 元`);
+  if (p.driver_name) {
+    lines.push(`司机：${p.driver_name}${p.driver_phone ? ` ${p.driver_phone}` : ""}`);
+  }
+  const imgs = p.images || {};
+  lines.push(
+    `单据：装车磅单${imgs.load ? "✓" : "✗"} 卸车磅单${imgs.unload ? "✓" : "✗"} 运单${imgs.waybill ? "✓" : "✗"}`
+  );
+  if (p.note) lines.push(`备注：${p.note}`);
+  return lines.join("\n");
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch (e) {
+    ok = false;
+  }
+  document.body.removeChild(ta);
+  return ok;
+}
+
+async function copyPlan(id) {
+  const p = state.plans.find((x) => x.id === id);
+  if (!p) return;
+  const text = planCopyText(p);
+  let ok = false;
+  if (navigator.clipboard && window.isSecureContext) {
+    ok = await navigator.clipboard.writeText(text).then(
+      () => true,
+      () => fallbackCopy(text)
+    );
+  } else {
+    ok = fallbackCopy(text);
+  }
+  toast(ok ? "已复制，可直接粘贴到微信" : "复制失败，请手动选择复制", ok ? "info" : "warn");
 }
 
 function renderPlans() {
@@ -643,7 +701,9 @@ function bindEvents() {
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
     const id = btn.dataset.id;
-    if (btn.dataset.act === "edit") {
+    if (btn.dataset.act === "copy") {
+      copyPlan(id);
+    } else if (btn.dataset.act === "edit") {
       const p = state.plans.find((x) => x.id === id);
       if (p) openPlanForm(p);
     } else if (btn.dataset.act === "del") {

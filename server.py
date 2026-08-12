@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(ROOT, "data")
+DATA_DIR = os.environ.get("DATA_DIR", os.path.join(ROOT, "data"))
 IMAGES_DIR = os.path.join(DATA_DIR, "images")
 DB_PATH = os.path.join(DATA_DIR, "plans.db")
 STATIC_DIR = os.path.join(ROOT, "static")
@@ -93,6 +93,8 @@ def init_db():
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_plans_date ON plans(load_date)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_plans_truck ON plans(truck_no)")
+        migrate_plan_arrive(conn)
+        conn.commit()
 
 
 def plan_to_dict(row):
@@ -158,6 +160,22 @@ def parse_paste_text(text):
         "note": "",
     }
     warnings = []
+    arrive_day = None
+    arrive_hour = None
+    arrive_note = ""
+
+    # 第一行：气源地-站点+N号H点（计划到站信息）
+    if lines:
+        first = lines[0]
+        m = re.match(
+            r"^([^\s\-—－]+)[\s\-—－]+(.+?)(\d{1,2})[号日](?:(\d{1,2})[点时])?",
+            first,
+        )
+        if m:
+            res["gas_source"] = m.group(1)
+            res["station"] = m.group(2)
+            arrive_day = int(m.group(3))
+            arrive_hour = int(m.group(4)) if m.group(4) else None
 
     for line in lines:
         if "供应商" in line:
@@ -180,21 +198,32 @@ def parse_paste_text(text):
             m = PRICE_RE.search(line)
             if m:
                 res["price"] = float(m.group(1))
+        if arrive_day is None and "到站" in line:
+            m = CN_DAY_RE.search(line)
+            if m:
+                arrive_day = int(m.group(1))
+                mh = re.search(r"(\d{1,2})[点时]", line)
+                arrive_hour = int(mh.group(1)) if mh else None
 
-    # 第一行：气源地-站点+N号H点
-    if lines:
-        first = lines[0]
-        m = re.match(
-            r"^([^\s\-—－]+)[\s\-—－]+(.+?)(\d{1,2})[号日](?:(\d{1,2})[点时])?",
-            first,
-        )
-        if m:
-            res["gas_source"] = m.group(1)
-            res["station"] = m.group(2)
-            day = int(m.group(3))
-            hour = m.group(4) or ""
-            res["plan_arrive"] = f"{day}号{hour}点" if hour else f"{day}号"
-            warnings.append("计划到站日期按原样保存（如 13号19点），需要完整日期可手动补充")
+    # 计算计划到站日期（完整日期，月份按装车日期推断）
+    if arrive_day is not None:
+        base = res["load_date"] or _today().strftime("%Y-%m-%d")
+        try:
+            bd = datetime.date.fromisoformat(base)
+        except ValueError:
+            bd = _today()
+        if arrive_day < bd.day:
+            nm = bd.month + 1
+            ny = bd.year + (1 if nm > 12 else 0)
+            nm = 1 if nm > 12 else nm
+        else:
+            ny, nm = bd.year, bd.month
+        date = make_date(ny, nm, arrive_day)
+        if date:
+            res["plan_arrive"] = date
+        if arrive_hour:
+            arrive_note = f"计划到站{arrive_hour}点"
+        warnings.append("计划到站日期已按装车日期推断月份，请核对")
 
     # 车号/挂车号
     plates = PLATE_RE.findall(text)
@@ -230,7 +259,64 @@ def parse_paste_text(text):
     if m:
         res["carrier"] = m.group(1)
 
+    if arrive_note:
+        res["note"] = "；".join(x for x in (res["note"], arrive_note) if x)
     return {"fields": res, "warnings": warnings}
+
+
+def migrate_plan_arrive(conn):
+    """把旧的"13号19点"等文本型计划到站日期迁移为 YYYY-MM-DD。"""
+    rows = conn.execute(
+        "SELECT id, load_date, plan_arrive, note FROM plans"
+    ).fetchall()
+    for r in rows:
+        pa = r["plan_arrive"] or ""
+        date, new_note = normalize_arrive(pa, r["load_date"], r["note"] or "")
+        if not date:
+            continue
+        conn.execute(
+            "UPDATE plans SET plan_arrive=?, note=? WHERE id=?",
+            (date, new_note, r["id"]),
+        )
+
+
+def normalize_arrive(plan_arrive, load_date, note=""):
+    """把计划到站日期统一为 YYYY-MM-DD；无法识别返回空。时刻信息并入备注。"""
+    pa = (plan_arrive or "").strip()
+    if not pa:
+        return "", note or ""
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", pa):
+        return pa, note or ""
+    hour = None
+    date = ""
+    m = FULL_DATE_RE.search(pa)
+    if m:
+        date = make_date(m.group(1), m.group(2), m.group(3))
+        mh = re.search(r"(\d{1,2})[点时]", pa)
+        hour = int(mh.group(1)) if mh else None
+    else:
+        m = CN_DAY_RE.search(pa)
+        if m:
+            day = int(m.group(1))
+            mh = re.search(r"(\d{1,2})[点时]", pa)
+            hour = int(mh.group(1)) if mh else None
+            try:
+                bd = datetime.date.fromisoformat(load_date or "")
+            except ValueError:
+                bd = _today()
+            if day < bd.day:
+                nm = bd.month + 1
+                ny = bd.year + (1 if nm > 12 else 0)
+                nm = 1 if nm > 12 else nm
+            else:
+                ny, nm = bd.year, bd.month
+            date = make_date(ny, nm, day)
+    note = note or ""
+    if hour:
+        suffix = f"计划到站{hour}点"
+        if suffix not in note:
+            note = "；".join(x for x in (note, suffix) if x)
+    return date, note
 
 
 def parse_ocr_text(text):
@@ -448,7 +534,14 @@ def export_xlsx(rows, from_date, to_date):
             ws.cell(row=row, column=2, value=d)
         except ValueError:
             pass
+        pa = p.get("plan_arrive") or ""
+        try:
+            d = datetime.date.fromisoformat(pa)
+            ws.cell(row=row, column=6, value=d)
+        except ValueError:
+            pass
         ws.cell(row=row, column=2).number_format = "yyyy-mm-dd"
+        ws.cell(row=row, column=6).number_format = "yyyy-mm-dd"
         ws.cell(row=row, column=7).number_format = "#,##0"
         ws.cell(row=row, column=11).number_format = "#,##0.00"
         ws.cell(row=row, column=12).number_format = "#,##0.00"
@@ -602,6 +695,10 @@ def upsert_plan(data, plan_id=None):
         except (TypeError, ValueError):
             pass
 
+    arrive, note = normalize_arrive(
+        data.get("plan_arrive"), load_date, (data.get("note") or "").strip()
+    )
+
     fields = {
         "load_date": load_date,
         "truck_no": truck_no,
@@ -609,14 +706,14 @@ def upsert_plan(data, plan_id=None):
         "gas_source": (data.get("gas_source") or "").strip(),
         "supplier": (data.get("supplier") or "").strip(),
         "station": (data.get("station") or "").strip(),
-        "plan_arrive": (data.get("plan_arrive") or "").strip(),
+        "plan_arrive": arrive,
         "price": price,
         "net_weight": weight,
         "amount": amount,
         "driver_name": (data.get("driver_name") or "").strip(),
         "driver_phone": (data.get("driver_phone") or "").strip(),
         "carrier": (data.get("carrier") or "").strip(),
-        "note": (data.get("note") or "").strip(),
+        "note": note,
     }
     conn = get_db()
     try:
