@@ -15,7 +15,7 @@ PLAN_JSON=$(curl -s -X POST "$B/api/plans" -H 'Content-Type: application/json' -
   "gas_source": "正安",
   "supplier": "浙江禾兴",
   "station": "宜章西东站",
-  "plan_arrive": "2026-08-13",
+  "plan_arrive": "2026-08-13T19:00",
   "price": 5900,
   "trailer_no": "冀JM09D挂",
   "driver_name": "余佑江",
@@ -65,7 +65,7 @@ curl -s -X PUT "$B/api/plans/$PLAN_ID" -H 'Content-Type: application/json' -d '{
   "gas_source": "正安",
   "supplier": "浙江禾兴",
   "station": "宜章西东站",
-  "plan_arrive": "2026-08-13",
+  "plan_arrive": "2026-08-13T19:00",
   "price": 5900,
   "net_weight": 31.22,
   "note": "测试修改备注"

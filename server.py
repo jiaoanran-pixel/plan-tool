@@ -162,7 +162,6 @@ def parse_paste_text(text):
     warnings = []
     arrive_day = None
     arrive_hour = None
-    arrive_note = ""
 
     # 第一行：气源地-站点+N号H点（计划到站信息）
     if lines:
@@ -220,9 +219,9 @@ def parse_paste_text(text):
             ny, nm = bd.year, bd.month
         date = make_date(ny, nm, arrive_day)
         if date:
-            res["plan_arrive"] = date
-        if arrive_hour:
-            arrive_note = f"计划到站{arrive_hour}点"
+            res["plan_arrive"] = (
+                f"{date}T{arrive_hour:02d}:00" if arrive_hour else f"{date}T00:00"
+            )
         warnings.append("计划到站日期已按装车日期推断月份，请核对")
 
     # 车号/挂车号
@@ -259,34 +258,44 @@ def parse_paste_text(text):
     if m:
         res["carrier"] = m.group(1)
 
-    if arrive_note:
-        res["note"] = "；".join(x for x in (res["note"], arrive_note) if x)
     return {"fields": res, "warnings": warnings}
 
 
 def migrate_plan_arrive(conn):
-    """把旧的"13号19点"等文本型计划到站日期迁移为 YYYY-MM-DD。"""
+    """把旧文本型/日期型计划到站日期迁移为 YYYY-MM-DDTHH:MM。"""
     rows = conn.execute(
         "SELECT id, load_date, plan_arrive, note FROM plans"
     ).fetchall()
     for r in rows:
         pa = r["plan_arrive"] or ""
-        date, new_note = normalize_arrive(pa, r["load_date"], r["note"] or "")
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}", pa):
+            continue
+        date = normalize_arrive(pa, r["load_date"])
         if not date:
             continue
+        # 旧数据把时刻写在备注里（如"计划到站19点"），迁移时恢复到时间
+        if not re.search(r"[T ]\d{1,2}:\d{2}", pa):
+            mn = re.search(r"计划到站(\d{1,2})点", r["note"] or "")
+            if mn:
+                date = f"{date[:11]}{int(mn.group(1)):02d}:00"
         conn.execute(
-            "UPDATE plans SET plan_arrive=?, note=? WHERE id=?",
-            (date, new_note, r["id"]),
+            "UPDATE plans SET plan_arrive=? WHERE id=?",
+            (date, r["id"]),
         )
 
 
-def normalize_arrive(plan_arrive, load_date, note=""):
-    """把计划到站日期统一为 YYYY-MM-DD；无法识别返回空。时刻信息并入备注。"""
+def normalize_arrive(plan_arrive, load_date):
+    """把计划到站日期统一为 datetime-local 格式 YYYY-MM-DDTHH:MM；无法识别返回空。"""
     pa = (plan_arrive or "").strip()
     if not pa:
-        return "", note or ""
+        return ""
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})[T ](\d{1,2})(?::(\d{2}))?$", pa)
+    if m:
+        hour = int(m.group(2))
+        minute = int(m.group(3) or 0)
+        return f"{m.group(1)}T{hour:02d}:{minute:02d}"
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", pa):
-        return pa, note or ""
+        return f"{pa}T00:00"
     hour = None
     date = ""
     m = FULL_DATE_RE.search(pa)
@@ -311,12 +320,9 @@ def normalize_arrive(plan_arrive, load_date, note=""):
             else:
                 ny, nm = bd.year, bd.month
             date = make_date(ny, nm, day)
-    note = note or ""
-    if hour:
-        suffix = f"计划到站{hour}点"
-        if suffix not in note:
-            note = "；".join(x for x in (note, suffix) if x)
-    return date, note
+    if not date:
+        return ""
+    return f"{date}T{hour:02d}:00" if hour else f"{date}T00:00"
 
 
 def parse_ocr_text(text):
@@ -536,12 +542,12 @@ def export_xlsx(rows, from_date, to_date):
             pass
         pa = p.get("plan_arrive") or ""
         try:
-            d = datetime.date.fromisoformat(pa)
+            d = datetime.datetime.fromisoformat(pa.replace(" ", "T"))
             ws.cell(row=row, column=6, value=d)
         except ValueError:
             pass
         ws.cell(row=row, column=2).number_format = "yyyy-mm-dd"
-        ws.cell(row=row, column=6).number_format = "yyyy-mm-dd"
+        ws.cell(row=row, column=6).number_format = "yyyy-mm-dd hh:mm"
         ws.cell(row=row, column=7).number_format = "#,##0"
         ws.cell(row=row, column=11).number_format = "#,##0.00"
         ws.cell(row=row, column=12).number_format = "#,##0.00"
@@ -695,9 +701,7 @@ def upsert_plan(data, plan_id=None):
         except (TypeError, ValueError):
             pass
 
-    arrive, note = normalize_arrive(
-        data.get("plan_arrive"), load_date, (data.get("note") or "").strip()
-    )
+    arrive = normalize_arrive(data.get("plan_arrive"), load_date)
 
     fields = {
         "load_date": load_date,
@@ -713,7 +717,7 @@ def upsert_plan(data, plan_id=None):
         "driver_name": (data.get("driver_name") or "").strip(),
         "driver_phone": (data.get("driver_phone") or "").strip(),
         "carrier": (data.get("carrier") or "").strip(),
-        "note": note,
+        "note": (data.get("note") or "").strip(),
     }
     conn = get_db()
     try:

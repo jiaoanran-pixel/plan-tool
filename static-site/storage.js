@@ -135,7 +135,6 @@ const Storage = {
     const weight = data.net_weight === "" || data.net_weight === null || data.net_weight === undefined
       ? null : Number(data.net_weight);
     const arrive = normalizeArrive(data.plan_arrive, data.load_date);
-    const noteParts = [String(data.note || "").trim(), arrive.note].filter(Boolean);
     const fields = {
       load_date: data.load_date,
       truck_no: truckNo,
@@ -143,14 +142,14 @@ const Storage = {
       gas_source: String(data.gas_source || "").trim(),
       supplier: String(data.supplier || "").trim(),
       station: String(data.station || "").trim(),
-      plan_arrive: arrive.date,
+      plan_arrive: arrive,
       price: Number.isFinite(price) ? price : null,
       net_weight: Number.isFinite(weight) ? weight : null,
       amount: computeAmount(price, weight),
       driver_name: String(data.driver_name || "").trim(),
       driver_phone: String(data.driver_phone || "").trim(),
       carrier: String(data.carrier || "").trim(),
-      note: noteParts.join("；"),
+      note: String(data.note || "").trim(),
     };
 
     // 图片：data.img_*_b64 传入时暂存，统一在拿到计划 ID 后写入 IndexedDB
@@ -278,8 +277,14 @@ function todayStr() {
 
 function normalizeArrive(planArrive, loadDate) {
   const pa = String(planArrive || "").trim();
-  if (!pa) return { date: "", note: "" };
-  if (/^\d{4}-\d{2}-\d{2}$/.test(pa)) return { date: pa, note: "" };
+  if (!pa) return "";
+  const m0 = pa.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2})(?::(\d{2}))?$/);
+  if (m0) {
+    const hour = String(Number(m0[2])).padStart(2, "0");
+    const minute = String(Number(m0[3] || 0)).padStart(2, "0");
+    return `${m0[1]}T${hour}:${minute}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(pa)) return `${pa}T00:00`;
   let hour = null;
   let date = "";
   const m = pa.match(FULL_DATE_RE);
@@ -307,7 +312,8 @@ function normalizeArrive(planArrive, loadDate) {
       date = makeDate(y, mo, day);
     }
   }
-  return { date, note: hour ? `计划到站${hour}点` : "" };
+  if (!date) return "";
+  return hour ? `${date}T${String(hour).padStart(2, "0")}:00` : `${date}T00:00`;
 }
 
 function parsePasteText(text) {
@@ -329,7 +335,6 @@ function parsePasteText(text) {
   const warnings = [];
   let arriveDay = null;
   let arriveHour = null;
-  let arriveNote = "";
 
   if (lines.length) {
     const first = lines[0];
@@ -387,8 +392,11 @@ function parsePasteText(text) {
       }
     }
     const date = makeDate(y, mo, arriveDay);
-    if (date) res.plan_arrive = date;
-    if (arriveHour) arriveNote = `计划到站${arriveHour}点`;
+    if (date) {
+      res.plan_arrive = arriveHour
+        ? `${date}T${String(arriveHour).padStart(2, "0")}:00`
+        : `${date}T00:00`;
+    }
     warnings.push("计划到站日期已按装车日期推断月份，请核对");
   }
 
@@ -421,8 +429,6 @@ function parsePasteText(text) {
 
   const cm = String(text).match(COMPANY_RE);
   if (cm) res.carrier = cm[1];
-  if (arriveNote) res.note = [res.note, arriveNote].filter(Boolean).join("；");
-
   return { fields: res, warnings };
 }
 

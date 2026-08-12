@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#2563eb">
   <title>车辆计划对账</title>
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 <div id="app">
@@ -73,7 +73,7 @@
           <label>气源地<input type="text" id="fGasSource" placeholder="如 正安"></label>
           <label>供应商<input type="text" id="fSupplier" placeholder="如 浙江禾兴"></label>
           <label>站点<input type="text" id="fStation" placeholder="如 宜章西东站"></label>
-          <label>计划到站日期<input type="date" id="fPlanArrive"></label>
+          <label>计划到站日期<input type="datetime-local" id="fPlanArrive"></label>
           <label>价格(元/吨)<input type="number" step="0.01" id="fPrice" placeholder="如 5900"></label>
           <label>净重(吨)<input type="number" step="0.001" id="fNetWeight" placeholder="卸车磅单OCR自动填，可改"></label>
         </div>
@@ -88,7 +88,10 @@
             </div>
           </details>
         </div>
-        <label>备注<textarea id="fNote" rows="2"></textarea></label>
+        <div class="note-row">
+          <label>备注<textarea id="fNote" rows="2"></textarea></label>
+          <button type="button" class="mini" id="btnClearNote">一键清除</button>
+        </div>
         <div class="img-slots">
           <div class="img-slot" data-type="load">
             <div class="slot-title">装车磅单</div>
@@ -185,6 +188,6 @@
 <script src="storage.js"></script>
 <script src="excel.js"></script>
 <script src="ocr.js"></script>
-<script src="app.js?v=2"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>

@@ -9,10 +9,19 @@ const XL_HEADERS = [
 
 function excelSerial(dateStr) {
   if (!dateStr) return null;
-  const parts = dateStr.split("-").map(Number);
+  const s = String(dateStr).replace(" ", "T");
+  const [datePart, timePart] = s.split("T");
+  const parts = (datePart || "").split("-").map(Number);
   if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
-  const dt = Date.UTC(parts[0], parts[1] - 1, parts[2]);
-  return Math.floor(dt / 86400000) + 25569;
+  let hour = 0;
+  let minute = 0;
+  if (timePart) {
+    const tp = timePart.split(":");
+    hour = Number(tp[0]) || 0;
+    minute = Number(tp[1]) || 0;
+  }
+  const dt = Date.UTC(parts[0], parts[1] - 1, parts[2], hour, minute);
+  return dt / 86400000 + 25569;
 }
 
 function setCell(ws, r, c, value, z) {
@@ -70,7 +79,7 @@ function buildSheets(plans, fromDate, toDate) {
     const s = excelSerial(aoa[r][1]);
     if (s !== null) setCell(ws, r, 1, s, "yyyy-mm-dd");
     const s2 = excelSerial(aoa[r][5]);
-    if (s2 !== null) setCell(ws, r, 5, s2, "yyyy-mm-dd");
+    if (s2 !== null) setCell(ws, r, 5, s2, "yyyy-mm-dd hh:mm");
     setCell(ws, r, 6, aoa[r][6] || null, "#,##0");
     setCell(ws, r, 10, aoa[r][10] || null, "#,##0.00");
     setCell(ws, r, 11, aoa[r][11] || null, "#,##0.00");

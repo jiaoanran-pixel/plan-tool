@@ -51,6 +51,18 @@ function fmtPrice(v) {
   return Number.isFinite(n) ? n.toLocaleString("zh-CN") : "";
 }
 
+function fmtArrive(v) {
+  if (!v) return "";
+  return String(v).replace("T", " ");
+}
+
+function toLocalValue(v) {
+  if (!v) return "";
+  const s = String(v);
+  if (s.includes("T")) return s;
+  return s + "T00:00";
+}
+
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -130,7 +142,7 @@ function planCardHTML(p) {
       <div class="kv"><span>气源地</span><b>${esc(p.gas_source) || "—"}</b></div>
       <div class="kv"><span>供应商</span><b>${esc(p.supplier) || "—"}</b></div>
       <div class="kv"><span>站点</span><b>${esc(p.station) || "—"}</b></div>
-      <div class="kv"><span>到站</span><b>${esc(p.plan_arrive) || "—"}</b></div>
+      <div class="kv"><span>到站</span><b>${esc(fmtArrive(p.plan_arrive)) || "—"}</b></div>
       <div class="kv"><span>价格</span><b>${fmtPrice(p.price) || "—"}</b></div>
       <div class="kv"><span>净重</span><b>${p.net_weight ? p.net_weight + " t" : "—"}</b></div>
       ${amount ? `<div class="kv"><span>金额</span><b>${amount}</b></div>` : ""}
@@ -196,13 +208,14 @@ function clearFilter() {
 /* ---------------- 复制 ---------------- */
 function planCopyText(p) {
   const lines = [
-    `【运输计划】${p.load_date}`,
+    "【运输计划】",
+    `装车日期：${p.load_date}`,
     `车号：${p.truck_no}${p.trailer_no ? `（挂车：${p.trailer_no}）` : ""}`,
   ];
   if (p.gas_source) lines.push(`气源地：${p.gas_source}`);
   if (p.supplier) lines.push(`供应商：${p.supplier}`);
   if (p.station) lines.push(`站点：${p.station}`);
-  if (p.plan_arrive) lines.push(`计划到站：${p.plan_arrive}`);
+  if (p.plan_arrive) lines.push(`计划到站：${fmtArrive(p.plan_arrive)}`);
   if (p.price) lines.push(`价格：${p.price} 元/吨`);
   if (p.net_weight) lines.push(`净重：${p.net_weight} 吨`);
   if (p.amount) lines.push(`金额：${Number(p.amount).toLocaleString("zh-CN")} 元`);
@@ -261,7 +274,7 @@ function openPlanForm(plan = null) {
   $("#fGasSource").value = plan?.gas_source || "";
   $("#fSupplier").value = plan?.supplier || "";
   $("#fStation").value = plan?.station || "";
-  $("#fPlanArrive").value = plan?.plan_arrive || "";
+  $("#fPlanArrive").value = toLocalValue(plan?.plan_arrive);
   $("#fPrice").value = plan?.price ?? "";
   $("#fNetWeight").value = plan?.net_weight ?? "";
   $("#fTrailerNo").value = plan?.trailer_no || "";
@@ -738,6 +751,10 @@ function bindEvents() {
   $("#planForm").addEventListener("submit", savePlan);
   $("#btnParse").addEventListener("click", parsePaste);
   $("#pasteText").addEventListener("paste", () => setTimeout(parsePaste, 50));
+  $("#btnClearNote").addEventListener("click", () => {
+    $("#fNote").value = "";
+    toast("备注已清除");
+  });
 
   $$(".img-slot").forEach((slot) => {
     const type = slot.dataset.type;
@@ -807,6 +824,8 @@ function refreshRecon() {
 
 /* ---------------- 启动 ---------------- */
 async function init() {
+  state.filterFrom = todayStr();
+  state.filterTo = todayStr();
   $("#filterFrom").value = state.filterFrom;
   $("#filterTo").value = state.filterTo;
   $("#reconDate").value = todayStr();

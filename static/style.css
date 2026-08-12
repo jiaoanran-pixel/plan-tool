@@ -509,6 +509,22 @@ label textarea {
   padding: 6px 0;
 }
 
+.note-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin-bottom: 10px;
+}
+
+.note-row label {
+  flex: 1;
+}
+
+.note-row .mini {
+  flex-shrink: 0;
+  margin-bottom: 4px;
+}
+
 .img-slots {
   display: grid;
   grid-template-columns: 1fr;
