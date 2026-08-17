@@ -617,6 +617,34 @@ label textarea {
   font-weight: 600;
 }
 
+.recon-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.recon-range label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.recon-range input[type="date"] {
+  width: 150px;
+}
+
+.recon-quick {
+  display: flex;
+  gap: 6px;
+  margin-left: 4px;
+}
+
+.recon-quick .btn {
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;

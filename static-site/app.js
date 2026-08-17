@@ -12,6 +12,7 @@ const state = {
   filterFrom: monthStart(),
   filterTo: todayStr(),
   query: "",
+  filterStatus: "",
   editingId: null,
   formImages: {},
   ocr: {
@@ -82,6 +83,8 @@ function filterPlans() {
   let rows = state.allPlans.slice();
   if (state.filterFrom) rows = rows.filter((p) => (p.load_date || "") >= state.filterFrom);
   if (state.filterTo) rows = rows.filter((p) => (p.load_date || "") <= state.filterTo);
+  if (state.filterStatus === "ok") rows = rows.filter((p) => p.complete);
+  else if (state.filterStatus === "missing") rows = rows.filter((p) => !p.complete);
   if (state.query) {
     const q = state.query.toLowerCase();
     rows = rows.filter(
@@ -201,8 +204,10 @@ function setMonthFilter() {
 function clearFilter() {
   state.filterFrom = "";
   state.filterTo = "";
+  state.filterStatus = "";
   $("#filterFrom").value = "";
   $("#filterTo").value = "";
+  $("#filterStatus").value = "";
 }
 
 /* ---------------- 复制 ---------------- */
@@ -574,8 +579,6 @@ async function newPlanFromOcr() {
 }
 
 /* ---------------- 对账 ---------------- */
-let reconMode = "day";
-
 function statsDay(day) {
   const rows = state.allPlans.filter((p) => p.load_date === day);
   return {
@@ -590,16 +593,20 @@ function statsDay(day) {
   };
 }
 
-function statsMonth(month) {
-  const from = `${month}-01`;
-  const rows = state.allPlans.filter((p) => (p.load_date || "") >= from && (p.load_date || "") <= `${month}-31`);
+function statsRange(from, to) {
+  const rows = state.allPlans.filter(
+    (p) =>
+      (!from || (p.load_date || "") >= from) &&
+      (!to || (p.load_date || "") <= to)
+  );
   const days = {};
   for (const p of rows) (days[p.load_date] = days[p.load_date] || []).push(p);
   const dayStats = Object.keys(days)
     .sort()
     .map((d) => statsDay(d));
   return {
-    month,
+    from,
+    to,
     total: rows.length,
     complete: rows.filter((p) => p.complete).length,
     missing_load: rows.filter((p) => !p.images.load).length,
@@ -610,15 +617,45 @@ function statsMonth(month) {
   };
 }
 
+function lastMonthRange() {
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const last = new Date(now.getFullYear(), now.getMonth(), 0);
+  const p = (n) => String(n).padStart(2, "0");
+  return {
+    from: `${first.getFullYear()}-${p(first.getMonth() + 1)}-${p(first.getDate())}`,
+    to: `${last.getFullYear()}-${p(last.getMonth() + 1)}-${p(last.getDate())}`,
+  };
+}
+
+function setReconQuick(kind) {
+  let from = "";
+  let to = "";
+  if (kind === "today") {
+    from = to = todayStr();
+  } else if (kind === "month") {
+    from = monthStart();
+    to = todayStr();
+  } else if (kind === "lastmonth") {
+    const r = lastMonthRange();
+    from = r.from;
+    to = r.to;
+  }
+  $("#reconFrom").value = from;
+  $("#reconTo").value = to;
+  loadRecon();
+}
+
 async function loadRecon() {
   $("#reconChips").innerHTML = '<div class="chip">加载中…</div>';
-  let stats = null;
-  if (reconMode === "day") {
-    stats = statsDay($("#reconDate").value || todayStr());
-  } else {
-    stats = statsMonth($("#reconMonth").value || monthStr());
+  const from = $("#reconFrom").value || "";
+  const to = $("#reconTo").value || "";
+  if (from && to && from > to) {
+    toast("开始日期不能晚于结束日期", "warn");
+    $("#reconChips").innerHTML = "";
+    return;
   }
-  renderRecon(stats);
+  renderRecon(statsRange(from, to));
 }
 
 function renderRecon(s) {
@@ -631,43 +668,39 @@ function renderRecon(s) {
     <div class="chip ok">金额合计 <b>¥${fmtPrice(s.amount.toFixed(2))}</b></div>`;
 
   const box = $("#reconTable");
-  if (s.days) {
-    if (!s.days.length) {
-      box.innerHTML = '<div class="empty-tip">本月暂无计划。</div>';
-      return;
-    }
-    box.innerHTML = `
-      <table class="table">
-        <thead><tr><th>日期</th><th>车数</th><th>齐全</th><th>缺装</th><th>缺卸</th><th>缺运</th><th>金额</th></tr></thead>
-        <tbody>
-          ${s.days
-            .map(
-              (d) => `<tr>
-                <td>${esc(d.date)}</td><td>${d.total}</td><td class="ok">${d.complete}</td>
-                <td>${d.missing_load}</td><td>${d.missing_unload}</td><td>${d.missing_waybill}</td>
-                <td>${fmtPrice(d.amount)}</td></tr>`
-            )
-            .join("")}
-        </tbody>
-      </table>`;
-  } else if (s.plans) {
-    if (!s.plans.length) {
-      box.innerHTML = '<div class="empty-tip">当日暂无计划。</div>';
-      return;
-    }
-    box.innerHTML = s.plans.map(planCardHTML).join("");
+  if (s.days.length === 1) {
+    const plans = s.days[0].plans || [];
+    box.innerHTML = plans.length
+      ? plans.map(planCardHTML).join("")
+      : '<div class="empty-tip">该日期暂无计划。</div>';
+    return;
   }
+  if (!s.days.length) {
+    box.innerHTML = '<div class="empty-tip">该时间范围暂无计划。</div>';
+    return;
+  }
+  box.innerHTML = `
+    <table class="table">
+      <thead><tr><th>日期</th><th>车数</th><th>齐全</th><th>缺装</th><th>缺卸</th><th>缺运</th><th>金额</th></tr></thead>
+      <tbody>
+        ${s.days
+          .map(
+            (d) => `<tr>
+              <td>${esc(d.date)}</td><td>${d.total}</td><td class="ok">${d.complete}</td>
+              <td>${d.missing_load}</td><td>${d.missing_unload}</td><td>${d.missing_waybill}</td>
+              <td>${fmtPrice(d.amount)}</td></tr>`
+          )
+          .join("")}
+      </tbody>
+    </table>`;
 }
 
 function exportExcel() {
-  let from = "";
-  let to = "";
-  if (reconMode === "day") {
-    from = to = $("#reconDate").value || todayStr();
-  } else {
-    const m = $("#reconMonth").value || monthStr();
-    from = `${m}-01`;
-    to = `${m}-31`;
+  const from = $("#reconFrom").value || "";
+  const to = $("#reconTo").value || "";
+  if (from && to && from > to) {
+    toast("开始日期不能晚于结束日期", "warn");
+    return;
   }
   const rows = state.allPlans.filter((p) => (!from || (p.load_date || "") >= from) && (!to || (p.load_date || "") <= to));
   exportXlsx(rows, from, to).catch((err) => toast(err.message, "warn"));
@@ -710,6 +743,10 @@ function bindEvents() {
       state.query = e.target.value.trim();
       renderFromFilter();
     }, 350);
+  });
+  $("#filterStatus").addEventListener("change", (e) => {
+    state.filterStatus = e.target.value;
+    renderFromFilter();
   });
 
   $("#planList").addEventListener("click", (e) => {
@@ -788,18 +825,11 @@ function bindEvents() {
   $("#btnConfirmAttach").addEventListener("click", confirmAttach);
   $("#btnNewFromOcr").addEventListener("click", newPlanFromOcr);
 
-  $$(".seg-btn").forEach((b) =>
-    b.addEventListener("click", () => {
-      $$(".seg-btn").forEach((x) => x.classList.remove("active"));
-      b.classList.add("active");
-      reconMode = b.dataset.mode;
-      $("#reconDate").classList.toggle("hidden", reconMode !== "day");
-      $("#reconMonth").classList.toggle("hidden", reconMode !== "month");
-      loadRecon();
-    })
+  $$("[data-quick]").forEach((b) =>
+    b.addEventListener("click", () => setReconQuick(b.dataset.quick))
   );
-  $("#reconDate").addEventListener("change", loadRecon);
-  $("#reconMonth").addEventListener("change", loadRecon);
+  $("#reconFrom").addEventListener("change", loadRecon);
+  $("#reconTo").addEventListener("change", loadRecon);
   $("#btnExport").addEventListener("click", exportExcel);
 
   $$("[data-close]").forEach((b) =>
@@ -828,8 +858,8 @@ async function init() {
   state.filterTo = todayStr();
   $("#filterFrom").value = state.filterFrom;
   $("#filterTo").value = state.filterTo;
-  $("#reconDate").value = todayStr();
-  $("#reconMonth").value = monthStr();
+  $("#reconFrom").value = monthStart();
+  $("#reconTo").value = todayStr();
   bindEvents();
   try {
     await loadPlans();

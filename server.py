@@ -851,6 +851,45 @@ def stats_month(month):
     }
 
 
+def stats_range(from_date, to_date):
+    rows = query_plans(from_date, to_date, "")
+    days = {}
+    for p in rows:
+        days.setdefault(p["load_date"], []).append(p)
+    day_stats = []
+    for d in sorted(days):
+        ps = days[d]
+        day_stats.append(
+            {
+                "date": d,
+                "total": len(ps),
+                "complete": sum(1 for p in ps if p["complete"]),
+                "missing_load": sum(1 for p in ps if not p["images"]["load"]),
+                "missing_unload": sum(1 for p in ps if not p["images"]["unload"]),
+                "missing_waybill": sum(1 for p in ps if not p["images"]["waybill"]),
+                "amount": round(
+                    sum((p.get("price") or 0) * (p.get("net_weight") or 0) for p in ps),
+                    2,
+                ),
+                "plans": ps,
+            }
+        )
+    return {
+        "from": from_date,
+        "to": to_date,
+        "total": len(rows),
+        "complete": sum(1 for p in rows if p["complete"]),
+        "missing_load": sum(1 for p in rows if not p["images"]["load"]),
+        "missing_unload": sum(1 for p in rows if not p["images"]["unload"]),
+        "missing_waybill": sum(1 for p in rows if not p["images"]["waybill"]),
+        "amount": round(
+            sum((p.get("price") or 0) * (p.get("net_weight") or 0) for p in rows),
+            2,
+        ),
+        "days": day_stats,
+    }
+
+
 # ---------------- HTTP 服务 ----------------
 class Handler(BaseHTTPRequestHandler):
     server_version = "PlanTool/1.0"
@@ -948,6 +987,10 @@ class Handler(BaseHTTPRequestHandler):
             if mode == "month":
                 month = (qs.get("month") or [_today().strftime("%Y-%m")])[0]
                 self.send_json({"ok": True, "stats": stats_month(month)})
+            elif mode == "range":
+                from_date = (qs.get("from") or [""])[0]
+                to_date = (qs.get("to") or [""])[0]
+                self.send_json({"ok": True, "stats": stats_range(from_date, to_date)})
             else:
                 day = (qs.get("date") or [_today().strftime("%Y-%m-%d")])[0]
                 self.send_json({"ok": True, "stats": stats_day(day)})

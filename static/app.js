@@ -11,6 +11,7 @@ const state = {
   filterFrom: todayStr(),
   filterTo: todayStr(),
   query: "",
+  filterStatus: "",
   editingId: null,
   formImages: {}, // {load|unload|waybill: {url, b64, removed}}
   ocr: {
@@ -99,9 +100,15 @@ async function loadPlans() {
   const qs = new URLSearchParams({ from: state.filterFrom, to: state.filterTo });
   if (state.query) qs.set("q", state.query);
   const data = await api(`/api/plans?${qs}`);
-  state.plans = data.plans;
+  state.plans = applyStatusFilter(data.plans);
   renderPlans();
   renderPlanChips();
+}
+
+function applyStatusFilter(rows) {
+  if (state.filterStatus === "ok") return rows.filter((p) => p.complete);
+  if (state.filterStatus === "missing") return rows.filter((p) => !p.complete);
+  return rows;
 }
 
 function renderPlanChips() {
@@ -267,8 +274,10 @@ function setMonthFilter() {
 function clearFilter() {
   state.filterFrom = "";
   state.filterTo = "";
+  state.filterStatus = "";
   $("#filterFrom").value = "";
   $("#filterTo").value = "";
+  $("#filterStatus").value = "";
 }
 
 /* ---------------- 计划表单 ---------------- */
@@ -611,18 +620,46 @@ async function newPlanFromOcr() {
 }
 
 /* ---------------- 对账 ---------------- */
-let reconMode = "day";
+function lastMonthRange() {
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const last = new Date(now.getFullYear(), now.getMonth(), 0);
+  const p = (n) => String(n).padStart(2, "0");
+  return {
+    from: `${first.getFullYear()}-${p(first.getMonth() + 1)}-${p(first.getDate())}`,
+    to: `${last.getFullYear()}-${p(last.getMonth() + 1)}-${p(last.getDate())}`,
+  };
+}
+
+function setReconQuick(kind) {
+  let from = "";
+  let to = "";
+  if (kind === "today") {
+    from = to = todayStr();
+  } else if (kind === "month") {
+    from = monthStart();
+    to = todayStr();
+  } else if (kind === "lastmonth") {
+    const r = lastMonthRange();
+    from = r.from;
+    to = r.to;
+  }
+  $("#reconFrom").value = from;
+  $("#reconTo").value = to;
+  loadRecon();
+}
 
 async function loadRecon() {
   $("#reconChips").innerHTML = '<div class="chip">加载中…</div>';
-  let url = "";
-  if (reconMode === "day") {
-    url = `/api/stats?mode=day&date=${$("#reconDate").value || todayStr()}`;
-  } else {
-    url = `/api/stats?mode=month&month=${$("#reconMonth").value || monthStr()}`;
+  const from = $("#reconFrom").value || "";
+  const to = $("#reconTo").value || "";
+  if (from && to && from > to) {
+    toast("开始日期不能晚于结束日期", "warn");
+    $("#reconChips").innerHTML = "";
+    return;
   }
   try {
-    const data = await api(url);
+    const data = await api(`/api/stats?mode=range&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
     renderRecon(data.stats);
   } catch (err) {
     $("#reconChips").innerHTML = `<div class="chip warn">${esc(err.message)}</div>`;
@@ -639,45 +676,41 @@ function renderRecon(s) {
     <div class="chip ok">金额合计 <b>¥${fmtPrice(s.amount.toFixed(2))}</b></div>`;
 
   const box = $("#reconTable");
-  if (s.days) {
-    // 月度：按天
-    if (!s.days.length) {
-      box.innerHTML = '<div class="empty-tip">本月暂无计划。</div>';
-      return;
-    }
-    box.innerHTML = `
-      <table class="table">
-        <thead><tr><th>日期</th><th>车数</th><th>齐全</th><th>缺装</th><th>缺卸</th><th>缺运</th><th>金额</th></tr></thead>
-        <tbody>
-          ${s.days
-            .map(
-              (d) => `<tr>
-                <td>${esc(d.date)}</td><td>${d.total}</td><td class="ok">${d.complete}</td>
-                <td>${d.missing_load}</td><td>${d.missing_unload}</td><td>${d.missing_waybill}</td>
-                <td>${fmtPrice(d.amount)}</td></tr>`
-            )
-            .join("")}
-        </tbody>
-      </table>`;
-  } else if (s.plans) {
-    if (!s.plans.length) {
-      box.innerHTML = '<div class="empty-tip">当日暂无计划。</div>';
-      return;
-    }
-    box.innerHTML = s.plans.map(planCardHTML).join("");
+  if (s.days && s.days.length === 1) {
+    const plans = s.days[0].plans || [];
+    box.innerHTML = plans.length
+      ? plans.map(planCardHTML).join("")
+      : '<div class="empty-tip">该日期暂无计划。</div>';
+    return;
   }
+  if (!s.days || !s.days.length) {
+    box.innerHTML = '<div class="empty-tip">该时间范围暂无计划。</div>';
+    return;
+  }
+  box.innerHTML = `
+    <table class="table">
+      <thead><tr><th>日期</th><th>车数</th><th>齐全</th><th>缺装</th><th>缺卸</th><th>缺运</th><th>金额</th></tr></thead>
+      <tbody>
+        ${s.days
+          .map(
+            (d) => `<tr>
+              <td>${esc(d.date)}</td><td>${d.total}</td><td class="ok">${d.complete}</td>
+              <td>${d.missing_load}</td><td>${d.missing_unload}</td><td>${d.missing_waybill}</td>
+              <td>${fmtPrice(d.amount)}</td></tr>`
+          )
+          .join("")}
+      </tbody>
+    </table>`;
 }
 
 function exportExcel() {
-  let qs = "";
-  if (reconMode === "day") {
-    const d = $("#reconDate").value || todayStr();
-    qs = `from=${d}&to=${d}`;
-  } else {
-    const m = $("#reconMonth").value || monthStr();
-    qs = `from=${m}-01&to=${m}-31`;
+  const from = $("#reconFrom").value || "";
+  const to = $("#reconTo").value || "";
+  if (from && to && from > to) {
+    toast("开始日期不能晚于结束日期", "warn");
+    return;
   }
-  window.location.href = `/api/export?${qs}`;
+  window.location.href = `/api/export?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
 }
 
 /* ---------------- 弹窗 ---------------- */
@@ -717,6 +750,11 @@ function bindEvents() {
       state.query = e.target.value.trim();
       loadPlans();
     }, 350);
+  });
+  $("#filterStatus").addEventListener("change", (e) => {
+    state.filterStatus = e.target.value;
+    renderPlans();
+    renderPlanChips();
   });
 
   $("#planList").addEventListener("click", (e) => {
@@ -797,18 +835,11 @@ function bindEvents() {
   $("#btnNewFromOcr").addEventListener("click", newPlanFromOcr);
 
   // 对账
-  $$(".seg-btn").forEach((b) =>
-    b.addEventListener("click", () => {
-      $$(".seg-btn").forEach((x) => x.classList.remove("active"));
-      b.classList.add("active");
-      reconMode = b.dataset.mode;
-      $("#reconDate").classList.toggle("hidden", reconMode !== "day");
-      $("#reconMonth").classList.toggle("hidden", reconMode !== "month");
-      loadRecon();
-    })
+  $$("[data-quick]").forEach((b) =>
+    b.addEventListener("click", () => setReconQuick(b.dataset.quick))
   );
-  $("#reconDate").addEventListener("change", loadRecon);
-  $("#reconMonth").addEventListener("change", loadRecon);
+  $("#reconFrom").addEventListener("change", loadRecon);
+  $("#reconTo").addEventListener("change", loadRecon);
   $("#btnExport").addEventListener("click", exportExcel);
 
   // 关闭弹窗
@@ -832,8 +863,8 @@ async function init() {
   state.filterTo = todayStr();
   $("#filterFrom").value = state.filterFrom;
   $("#filterTo").value = state.filterTo;
-  $("#reconDate").value = todayStr();
-  $("#reconMonth").value = monthStr();
+  $("#reconFrom").value = monthStart();
+  $("#reconTo").value = todayStr();
   bindEvents();
   try {
     const st = await api("/api/state");
