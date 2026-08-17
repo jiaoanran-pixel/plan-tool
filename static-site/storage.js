@@ -252,6 +252,8 @@ const ID_RE = /^\d{17}[\dXx]$/;
 const PHONE_RE = /^1[3-9]\d{9}$/;
 const NAME_RE = /^[\u4e00-\u9fff]{2,4}$/;
 const COMPANY_RE = /([\u4e00-\u9fff]{2,}(?:运输|物流|公司)[\u4e00-\u9fff]{0,12})/;
+// 常用站点词典：后续新增站点时只需在此处补充。
+const COMMON_STATIONS = ["宜章西西站", "宜章西东站", "鲁塘坳", "湘阴渡", "汝城南"];
 
 function makeDate(y, m, d) {
   y = Number(y);
@@ -343,19 +345,32 @@ function parsePasteText(text) {
     if (route) {
       res.gas_source = route[1].trim();
       const tail = route[2].trim();
-      const arrive = tail.match(/^(.*?)(\d{1,2})[号日](?:(\d{1,2})[点时])?/);
-      res.station = (arrive ? arrive[1] : tail).trim();
+      const dateBeforeStation = tail.match(/^(\d{1,2})[号日](?:(\d{1,2})[点时])?\s*(.+)$/);
+      const dateAfterStation = tail.match(/^(.*?)(\d{1,2})[号日](?:(\d{1,2})[点时])?$/);
+      const arrive = dateBeforeStation || dateAfterStation;
+      res.station = (
+        dateBeforeStation ? dateBeforeStation[3] : dateAfterStation ? dateAfterStation[1] : tail
+      ).trim();
       if (arrive) {
-        arriveDay = Number(arrive[2]);
-        arriveHour = arrive[3] ? Number(arrive[3]) : null;
+        arriveDay = Number(dateBeforeStation ? dateBeforeStation[1] : dateAfterStation[2]);
+        arriveHour = Number(dateBeforeStation ? dateBeforeStation[2] : dateAfterStation[3]) || null;
       }
     } else {
-      const m = first.match(/^([^\s\-—－]+)\s+(.+?)(\d{1,2})[号日](?:(\d{1,2})[点时])?/);
-      if (m) {
-        res.gas_source = m[1];
-        res.station = m[2];
-        arriveDay = Number(m[3]);
-        arriveHour = m[4] ? Number(m[4]) : null;
+      // 兼容“气源地 18号12点站点”：日期时间在站点前。
+      const dateFirst = first.match(/^([^\s\-—－]+)\s+(\d{1,2})[号日](?:(\d{1,2})[点时])?\s*(.+)$/);
+      if (dateFirst) {
+        res.gas_source = dateFirst[1];
+        res.station = dateFirst[4].trim();
+        arriveDay = Number(dateFirst[2]);
+        arriveHour = dateFirst[3] ? Number(dateFirst[3]) : null;
+      } else {
+        const m = first.match(/^([^\s\-—－]+)\s+(.+?)(\d{1,2})[号日](?:(\d{1,2})[点时])?$/);
+        if (m) {
+          res.gas_source = m[1];
+          res.station = m[2];
+          arriveDay = Number(m[3]);
+          arriveHour = m[4] ? Number(m[4]) : null;
+        }
       }
     }
   }
@@ -440,8 +455,32 @@ function parsePasteText(text) {
     if (extra) res.note = extra;
   }
 
+  // 优先识别“驾驶员：姓名 / 电话：号码”这类带标签格式。
+  const driverIdx = lines.findIndex((ln) => /^(?:驾驶员|司机)(?:姓名)?\s*[：:]/.test(ln));
+  if (driverIdx >= 0) {
+    const name = lines[driverIdx].replace(/^(?:驾驶员|司机)(?:姓名)?\s*[：:]\s*/, "").trim();
+    if (name) res.driver_name = name;
+    for (let i = driverIdx + 1; i < lines.length; i++) {
+      if (/^(?:押运员|押运|供应商)\s*[：:]/.test(lines[i])) break;
+      const phone = lines[i].match(/^(?:电话(?:号码)?\s*[：:]?\s*)?(1\d{10})\s*$/);
+      if (phone) {
+        res.driver_phone = phone[1];
+        break;
+      }
+    }
+  }
+
   const cm = String(text).match(COMPANY_RE);
   if (cm) res.carrier = cm[1];
+
+  // 常用站点在任意粘贴行中出现时，优先作为站点字段。
+  for (const line of lines) {
+    const station = COMMON_STATIONS.find((name) => line.includes(name));
+    if (station) {
+      res.station = station;
+      break;
+    }
+  }
   return { fields: res, warnings };
 }
 

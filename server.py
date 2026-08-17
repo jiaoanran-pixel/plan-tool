@@ -50,6 +50,8 @@ ID_RE = re.compile(r"\d{17}[\dXx]")
 PHONE_RE = re.compile(r"1[3-9]\d{9}")
 NAME_RE = re.compile(r"^[\u4e00-\u9fff]{2,4}$")
 COMPANY_RE = re.compile(r"([\u4e00-\u9fff]{2,}(?:运输|物流|公司)[\u4e00-\u9fff]{0,12})")
+# 常用站点词典：后续新增站点时只需在此处补充。
+COMMON_STATIONS = ("宜章西西站", "宜章西东站", "鲁塘坳", "湘阴渡", "汝城南")
 
 
 # ---------------- 数据库 ----------------
@@ -170,21 +172,30 @@ def parse_paste_text(text):
         if route:
             res["gas_source"] = route.group(1).strip()
             tail = route.group(2).strip()
-            arrive = re.match(r"^(.*?)(\d{1,2})[号日](?:(\d{1,2})[点时])?", tail)
-            res["station"] = (arrive.group(1) if arrive else tail).strip()
+            date_before_station = re.match(r"^(\d{1,2})[号日](?:(\d{1,2})[点时])?\s*(.+)$", tail)
+            date_after_station = re.match(r"^(.*?)(\d{1,2})[号日](?:(\d{1,2})[点时])?$", tail)
+            arrive = date_before_station or date_after_station
+            res["station"] = (
+                date_before_station.group(3) if date_before_station
+                else date_after_station.group(1) if date_after_station else tail
+            ).strip()
             if arrive:
-                arrive_day = int(arrive.group(2))
-                arrive_hour = int(arrive.group(3)) if arrive.group(3) else None
+                arrive_day = int(arrive.group(1) if date_before_station else arrive.group(2))
+                arrive_hour = int(date_before_station.group(2) if date_before_station else arrive.group(3)) if (date_before_station.group(2) if date_before_station else arrive.group(3)) else None
         else:
-            m = re.match(
-                r"^([^\s\-—－]+)\s+(.+?)(\d{1,2})[号日](?:(\d{1,2})[点时])?",
-                first,
-            )
-            if m:
-                res["gas_source"] = m.group(1)
-                res["station"] = m.group(2)
-                arrive_day = int(m.group(3))
-                arrive_hour = int(m.group(4)) if m.group(4) else None
+            date_first = re.match(r"^([^\s\-—－]+)\s+(\d{1,2})[号日](?:(\d{1,2})[点时])?\s*(.+)$", first)
+            if date_first:
+                res["gas_source"] = date_first.group(1)
+                res["station"] = date_first.group(4).strip()
+                arrive_day = int(date_first.group(2))
+                arrive_hour = int(date_first.group(3)) if date_first.group(3) else None
+            else:
+                m = re.match(r"^([^\s\-—－]+)\s+(.+?)(\d{1,2})[号日](?:(\d{1,2})[点时])?$", first)
+                if m:
+                    res["gas_source"] = m.group(1)
+                    res["station"] = m.group(2)
+                    arrive_day = int(m.group(3))
+                    arrive_hour = int(m.group(4)) if m.group(4) else None
 
     for line in lines:
         if "供应商" in line:
@@ -263,10 +274,31 @@ def parse_paste_text(text):
             if extra:
                 res["note"] = extra
 
+    # 优先识别“驾驶员：姓名 / 电话：号码”这类带标签格式。
+    driver_index = next((i for i, ln in enumerate(lines) if re.match(r"^(?:驾驶员|司机)(?:姓名)?\s*[：:]", ln)), -1)
+    if driver_index >= 0:
+        name = re.sub(r"^(?:驾驶员|司机)(?:姓名)?\s*[：:]\s*", "", lines[driver_index]).strip()
+        if name:
+            res["driver_name"] = name
+        for ln in lines[driver_index + 1:]:
+            if re.match(r"^(?:押运员|押运|供应商)\s*[：:]", ln):
+                break
+            phone = re.fullmatch(r"(?:电话(?:号码)?\s*[：:]?\s*)?(1\d{10})\s*", ln)
+            if phone:
+                res["driver_phone"] = phone.group(1)
+                break
+
     # 承运公司
     m = COMPANY_RE.search(text)
     if m:
         res["carrier"] = m.group(1)
+
+    # 常用站点在任意粘贴行中出现时，优先作为站点字段。
+    for line in lines:
+        station = next((name for name in COMMON_STATIONS if name in line), None)
+        if station:
+            res["station"] = station
+            break
 
     return {"fields": res, "warnings": warnings}
 

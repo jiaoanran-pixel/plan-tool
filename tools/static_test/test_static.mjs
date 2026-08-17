@@ -77,9 +77,39 @@ console.log("note:", f.note);
 const routeOnly = ctx.parsePasteText("正安-宜章西东站A\n冀J0B318").fields;
 for (const [name, got, want] of [
   ["route gas_source", routeOnly.gas_source, "正安"],
-  ["route station", routeOnly.station, "宜章西东站A"],
+  ["route station", routeOnly.station, "宜章西东站"],
 ]) {
   const ok = String(got) === want;
+  console.log(`${ok ? "✓" : "✗"} ${name}: ${got} ${ok ? "" : `(期望 ${want})`}`);
+  if (!ok) fail++;
+}
+
+// ---- 1.3 常用站点词典应优先填入站点 ----
+const commonStation = ctx.parsePasteText("北海 18号12点未知地点\n目的地：汝城南\n17号装车").fields;
+const commonOk = commonStation.station === "汝城南";
+console.log(`${commonOk ? "✓" : "✗"} common station: ${commonStation.station}`);
+if (!commonOk) fail++;
+
+// ---- 1.2 气源地 日期时间 站点 + 带标签司机 ----
+const labeled = ctx.parsePasteText(`北海 18号12点鲁塘坳
+17号装车
+东莞国鸿建伟物流有限公司
+粤S66531粤SN395挂
+驾驶员：杨武
+身份证：440981198105023918
+电话：15875630983
+押运员：何灵洁
+身份证：440982198510153480
+电话：13553671787
+供应商：浙江禾兴；价格：5930`).fields;
+for (const [name, got, want] of [
+  ["labeled station", labeled.station, "鲁塘坳"],
+  ["labeled load_date", labeled.load_date, "2026-08-17"],
+  ["labeled plan_arrive", labeled.plan_arrive, "2026-08-18T12:00"],
+  ["labeled driver_name", labeled.driver_name, "杨武"],
+  ["labeled driver_phone", labeled.driver_phone, "15875630983"],
+]) {
+  const ok = String(got) === String(want);
   console.log(`${ok ? "✓" : "✗"} ${name}: ${got} ${ok ? "" : `(期望 ${want})`}`);
   if (!ok) fail++;
 }
