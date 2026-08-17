@@ -97,7 +97,7 @@ function switchView(name) {
 
 /* ---------------- 计划列表 ---------------- */
 async function loadPlans() {
-  const qs = new URLSearchParams({ from: state.filterFrom, to: state.filterTo });
+  const qs = new URLSearchParams({ from: state.filterFrom, to: state.filterTo, date_field: "plan_arrive" });
   if (state.query) qs.set("q", state.query);
   const data = await api(`/api/plans?${qs}`);
   state.plans = applyStatusFilter(data.plans);
@@ -653,13 +653,14 @@ async function loadRecon() {
   $("#reconChips").innerHTML = '<div class="chip">加载中…</div>';
   const from = $("#reconFrom").value || "";
   const to = $("#reconTo").value || "";
+  const supplier = $("#reconSupplier").value.trim();
   if (from && to && from > to) {
     toast("开始日期不能晚于结束日期", "warn");
     $("#reconChips").innerHTML = "";
     return;
   }
   try {
-    const data = await api(`/api/stats?mode=range&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+    const data = await api(`/api/stats?mode=range&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&supplier=${encodeURIComponent(supplier)}`);
     renderRecon(data.stats);
   } catch (err) {
     $("#reconChips").innerHTML = `<div class="chip warn">${esc(err.message)}</div>`;
@@ -689,7 +690,7 @@ function renderRecon(s) {
   }
   box.innerHTML = `
     <table class="table">
-      <thead><tr><th>日期</th><th>车数</th><th>齐全</th><th>缺装</th><th>缺卸</th><th>缺运</th><th>金额</th></tr></thead>
+      <thead><tr><th>计划到站日期</th><th>车数</th><th>齐全</th><th>缺装</th><th>缺卸</th><th>缺运</th><th>金额</th></tr></thead>
       <tbody>
         ${s.days
           .map(
@@ -706,11 +707,12 @@ function renderRecon(s) {
 function exportExcel() {
   const from = $("#reconFrom").value || "";
   const to = $("#reconTo").value || "";
+  const supplier = $("#reconSupplier").value.trim();
   if (from && to && from > to) {
     toast("开始日期不能晚于结束日期", "warn");
     return;
   }
-  window.location.href = `/api/export?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  window.location.href = `/api/export?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&supplier=${encodeURIComponent(supplier)}`;
 }
 
 /* ---------------- 弹窗 ---------------- */
@@ -840,6 +842,11 @@ function bindEvents() {
   );
   $("#reconFrom").addEventListener("change", loadRecon);
   $("#reconTo").addEventListener("change", loadRecon);
+  let reconSupplierTimer = null;
+  $("#reconSupplier").addEventListener("input", () => {
+    clearTimeout(reconSupplierTimer);
+    reconSupplierTimer = setTimeout(loadRecon, 250);
+  });
   $("#btnExport").addEventListener("click", exportExcel);
 
   // 关闭弹窗

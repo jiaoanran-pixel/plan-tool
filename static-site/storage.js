@@ -338,12 +338,25 @@ function parsePasteText(text) {
 
   if (lines.length) {
     const first = lines[0];
-    const m = first.match(/^([^\s\-—－]+)[\s\-—－]+(.+?)(\d{1,2})[号日](?:(\d{1,2})[点时])?/);
-    if (m) {
-      res.gas_source = m[1];
-      res.station = m[2];
-      arriveDay = Number(m[3]);
-      arriveHour = m[4] ? Number(m[4]) : null;
+    // 首行只要是“气源地-站点”，就优先按横杠拆分；后面的到站日期可有可无。
+    const route = first.match(/^([^\s\-—－]+)\s*[\-—－]\s*(.+)$/);
+    if (route) {
+      res.gas_source = route[1].trim();
+      const tail = route[2].trim();
+      const arrive = tail.match(/^(.*?)(\d{1,2})[号日](?:(\d{1,2})[点时])?/);
+      res.station = (arrive ? arrive[1] : tail).trim();
+      if (arrive) {
+        arriveDay = Number(arrive[2]);
+        arriveHour = arrive[3] ? Number(arrive[3]) : null;
+      }
+    } else {
+      const m = first.match(/^([^\s\-—－]+)\s+(.+?)(\d{1,2})[号日](?:(\d{1,2})[点时])?/);
+      if (m) {
+        res.gas_source = m[1];
+        res.station = m[2];
+        arriveDay = Number(m[3]);
+        arriveHour = m[4] ? Number(m[4]) : null;
+      }
     }
   }
 

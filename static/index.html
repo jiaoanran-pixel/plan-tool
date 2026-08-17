@@ -42,10 +42,11 @@
   <main id="view-recon" class="view hidden">
     <div class="recon-toolbar">
       <div class="recon-range">
-        <label>开始</label>
+        <label>计划到站开始</label>
         <input type="date" id="reconFrom">
-        <label>结束</label>
+        <label>计划到站结束</label>
         <input type="date" id="reconTo">
+        <input type="search" id="reconSupplier" placeholder="筛选供应商（模糊搜索）">
         <div class="recon-quick">
           <button type="button" class="btn ghost" data-quick="today">今日</button>
           <button type="button" class="btn ghost" data-quick="month">本月</button>
@@ -187,6 +188,6 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=6"></script>
 </body>
 </html>

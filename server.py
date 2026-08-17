@@ -163,18 +163,28 @@ def parse_paste_text(text):
     arrive_day = None
     arrive_hour = None
 
-    # 第一行：气源地-站点+N号H点（计划到站信息）
+    # 第一行：气源地-站点（可选 N号H点）；横杠后的内容即为站点名称。
     if lines:
         first = lines[0]
-        m = re.match(
-            r"^([^\s\-—－]+)[\s\-—－]+(.+?)(\d{1,2})[号日](?:(\d{1,2})[点时])?",
-            first,
-        )
-        if m:
-            res["gas_source"] = m.group(1)
-            res["station"] = m.group(2)
-            arrive_day = int(m.group(3))
-            arrive_hour = int(m.group(4)) if m.group(4) else None
+        route = re.match(r"^([^\s\-—－]+)\s*[\-—－]\s*(.+)$", first)
+        if route:
+            res["gas_source"] = route.group(1).strip()
+            tail = route.group(2).strip()
+            arrive = re.match(r"^(.*?)(\d{1,2})[号日](?:(\d{1,2})[点时])?", tail)
+            res["station"] = (arrive.group(1) if arrive else tail).strip()
+            if arrive:
+                arrive_day = int(arrive.group(2))
+                arrive_hour = int(arrive.group(3)) if arrive.group(3) else None
+        else:
+            m = re.match(
+                r"^([^\s\-—－]+)\s+(.+?)(\d{1,2})[号日](?:(\d{1,2})[点时])?",
+                first,
+            )
+            if m:
+                res["gas_source"] = m.group(1)
+                res["station"] = m.group(2)
+                arrive_day = int(m.group(3))
+                arrive_hour = int(m.group(4)) if m.group(4) else None
 
     for line in lines:
         if "供应商" in line:
@@ -635,23 +645,28 @@ def export_xlsx(rows, from_date, to_date):
 
 
 # ---------------- 查询 ----------------
-def query_plans(from_date, to_date, q):
+def query_plans(from_date, to_date, q, date_field="load_date", supplier=""):
+    """查询计划；date_field 仅允许按装车日期或计划到站日期筛选。"""
     conn = get_db()
     try:
         sql = "SELECT * FROM plans WHERE 1=1"
         args = []
+        date_expr = "substr(plan_arrive, 1, 10)" if date_field == "plan_arrive" else "load_date"
         if from_date:
-            sql += " AND load_date >= ?"
+            sql += f" AND {date_expr} >= ?"
             args.append(from_date)
         if to_date:
-            sql += " AND load_date <= ?"
+            sql += f" AND {date_expr} <= ?"
             args.append(to_date)
+        if supplier:
+            sql += " AND supplier LIKE ?"
+            args.append(f"%{supplier}%")
         if q:
             sql += """ AND (truck_no LIKE ? OR gas_source LIKE ? OR supplier LIKE ?
                          OR station LIKE ? OR driver_name LIKE ? OR note LIKE ?)"""
             like = f"%{q}%"
             args += [like] * 6
-        sql += " ORDER BY load_date DESC, created_at DESC"
+        sql += f" ORDER BY {date_expr} DESC, created_at DESC"
         rows = conn.execute(sql, args).fetchall()
         return [plan_to_dict(r) for r in rows]
     finally:
@@ -788,7 +803,7 @@ def delete_plan(plan_id):
 
 
 def stats_day(day):
-    rows = query_plans(day, day, "")
+    rows = query_plans(day, day, "", "plan_arrive")
     return {
         "date": day,
         "total": len(rows),
@@ -815,10 +830,10 @@ def stats_month(month):
         to_date = f"{month}-{last:02d}"
     except (ValueError, IndexError):
         to_date = f"{month}-31"
-    rows = query_plans(from_date, to_date, "")
+    rows = query_plans(from_date, to_date, "", "plan_arrive")
     days = {}
     for p in rows:
-        days.setdefault(p["load_date"], []).append(p)
+        days.setdefault((p.get("plan_arrive") or "")[:10], []).append(p)
     day_stats = []
     for d in sorted(days):
         ps = days[d]
@@ -851,11 +866,11 @@ def stats_month(month):
     }
 
 
-def stats_range(from_date, to_date):
-    rows = query_plans(from_date, to_date, "")
+def stats_range(from_date, to_date, supplier=""):
+    rows = query_plans(from_date, to_date, "", "plan_arrive", supplier)
     days = {}
     for p in rows:
-        days.setdefault(p["load_date"], []).append(p)
+        days.setdefault((p.get("plan_arrive") or "")[:10], []).append(p)
     day_stats = []
     for d in sorted(days):
         ps = days[d]
@@ -972,7 +987,8 @@ class Handler(BaseHTTPRequestHandler):
             from_date = (qs.get("from") or [""])[0]
             to_date = (qs.get("to") or [""])[0]
             q = (qs.get("q") or [""])[0]
-            self.send_json({"ok": True, "plans": query_plans(from_date, to_date, q)})
+            date_field = (qs.get("date_field") or ["load_date"])[0]
+            self.send_json({"ok": True, "plans": query_plans(from_date, to_date, q, date_field)})
             return
         if path.startswith("/api/plans/"):
             plan_id = path[len("/api/plans/"):].strip("/")
@@ -990,7 +1006,8 @@ class Handler(BaseHTTPRequestHandler):
             elif mode == "range":
                 from_date = (qs.get("from") or [""])[0]
                 to_date = (qs.get("to") or [""])[0]
-                self.send_json({"ok": True, "stats": stats_range(from_date, to_date)})
+                supplier = (qs.get("supplier") or [""])[0]
+                self.send_json({"ok": True, "stats": stats_range(from_date, to_date, supplier)})
             else:
                 day = (qs.get("date") or [_today().strftime("%Y-%m-%d")])[0]
                 self.send_json({"ok": True, "stats": stats_day(day)})
@@ -998,7 +1015,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/export":
             from_date = (qs.get("from") or [""])[0]
             to_date = (qs.get("to") or [""])[0]
-            rows = query_plans(from_date, to_date, "")
+            supplier = (qs.get("supplier") or [""])[0]
+            rows = query_plans(from_date, to_date, "", "plan_arrive", supplier)
             title, buf = export_xlsx(rows, from_date or "全部", to_date or "全部")
             encoded = urllib_quote(title)
             self._send(

@@ -81,8 +81,8 @@ function switchView(name) {
 /* ---------------- 计划列表 ---------------- */
 function filterPlans() {
   let rows = state.allPlans.slice();
-  if (state.filterFrom) rows = rows.filter((p) => (p.load_date || "") >= state.filterFrom);
-  if (state.filterTo) rows = rows.filter((p) => (p.load_date || "") <= state.filterTo);
+  if (state.filterFrom) rows = rows.filter((p) => (p.plan_arrive || "").slice(0, 10) >= state.filterFrom);
+  if (state.filterTo) rows = rows.filter((p) => (p.plan_arrive || "").slice(0, 10) <= state.filterTo);
   if (state.filterStatus === "ok") rows = rows.filter((p) => p.complete);
   else if (state.filterStatus === "missing") rows = rows.filter((p) => !p.complete);
   if (state.query) {
@@ -96,7 +96,7 @@ function filterPlans() {
     );
   }
   return rows.sort((a, b) => {
-    const d = (b.load_date || "").localeCompare(a.load_date || "");
+    const d = (b.plan_arrive || "").localeCompare(a.plan_arrive || "");
     return d !== 0 ? d : (b.created_at || "").localeCompare(a.created_at || "");
   });
 }
@@ -579,8 +579,25 @@ async function newPlanFromOcr() {
 }
 
 /* ---------------- 对账 ---------------- */
-function statsDay(day) {
-  const rows = state.allPlans.filter((p) => p.load_date === day);
+function reconDate(p) {
+  return (p.plan_arrive || "").slice(0, 10);
+}
+
+function supplierMatches(p, supplier) {
+  return !supplier || (p.supplier || "").toLowerCase().includes(supplier.toLowerCase());
+}
+
+function reconRows(from, to, supplier) {
+  return state.allPlans.filter(
+    (p) =>
+      (!from || reconDate(p) >= from) &&
+      (!to || reconDate(p) <= to) &&
+      supplierMatches(p, supplier)
+  );
+}
+
+function statsDay(day, supplier) {
+  const rows = reconRows(day, day, supplier);
   return {
     date: day,
     total: rows.length,
@@ -593,17 +610,13 @@ function statsDay(day) {
   };
 }
 
-function statsRange(from, to) {
-  const rows = state.allPlans.filter(
-    (p) =>
-      (!from || (p.load_date || "") >= from) &&
-      (!to || (p.load_date || "") <= to)
-  );
+function statsRange(from, to, supplier) {
+  const rows = reconRows(from, to, supplier);
   const days = {};
-  for (const p of rows) (days[p.load_date] = days[p.load_date] || []).push(p);
+  for (const p of rows) (days[reconDate(p)] = days[reconDate(p)] || []).push(p);
   const dayStats = Object.keys(days)
     .sort()
-    .map((d) => statsDay(d));
+    .map((d) => statsDay(d, supplier));
   return {
     from,
     to,
@@ -650,12 +663,13 @@ async function loadRecon() {
   $("#reconChips").innerHTML = '<div class="chip">加载中…</div>';
   const from = $("#reconFrom").value || "";
   const to = $("#reconTo").value || "";
+  const supplier = $("#reconSupplier").value.trim();
   if (from && to && from > to) {
     toast("开始日期不能晚于结束日期", "warn");
     $("#reconChips").innerHTML = "";
     return;
   }
-  renderRecon(statsRange(from, to));
+  renderRecon(statsRange(from, to, supplier));
 }
 
 function renderRecon(s) {
@@ -681,7 +695,7 @@ function renderRecon(s) {
   }
   box.innerHTML = `
     <table class="table">
-      <thead><tr><th>日期</th><th>车数</th><th>齐全</th><th>缺装</th><th>缺卸</th><th>缺运</th><th>金额</th></tr></thead>
+      <thead><tr><th>计划到站日期</th><th>车数</th><th>齐全</th><th>缺装</th><th>缺卸</th><th>缺运</th><th>金额</th></tr></thead>
       <tbody>
         ${s.days
           .map(
@@ -698,11 +712,12 @@ function renderRecon(s) {
 function exportExcel() {
   const from = $("#reconFrom").value || "";
   const to = $("#reconTo").value || "";
+  const supplier = $("#reconSupplier").value.trim();
   if (from && to && from > to) {
     toast("开始日期不能晚于结束日期", "warn");
     return;
   }
-  const rows = state.allPlans.filter((p) => (!from || (p.load_date || "") >= from) && (!to || (p.load_date || "") <= to));
+  const rows = reconRows(from, to, supplier);
   exportXlsx(rows, from, to).catch((err) => toast(err.message, "warn"));
 }
 
@@ -830,6 +845,11 @@ function bindEvents() {
   );
   $("#reconFrom").addEventListener("change", loadRecon);
   $("#reconTo").addEventListener("change", loadRecon);
+  let reconSupplierTimer = null;
+  $("#reconSupplier").addEventListener("input", () => {
+    clearTimeout(reconSupplierTimer);
+    reconSupplierTimer = setTimeout(loadRecon, 250);
+  });
   $("#btnExport").addEventListener("click", exportExcel);
 
   $$("[data-close]").forEach((b) =>

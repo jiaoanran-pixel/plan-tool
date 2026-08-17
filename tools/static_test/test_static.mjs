@@ -73,6 +73,17 @@ for (const [name, got, want] of checks) {
 }
 console.log("note:", f.note);
 
+// ---- 1.1 首行“气源地-站点”无日期时也应拆分 ----
+const routeOnly = ctx.parsePasteText("正安-宜章西东站A\n冀J0B318").fields;
+for (const [name, got, want] of [
+  ["route gas_source", routeOnly.gas_source, "正安"],
+  ["route station", routeOnly.station, "宜章西东站A"],
+]) {
+  const ok = String(got) === want;
+  console.log(`${ok ? "✓" : "✗"} ${name}: ${got} ${ok ? "" : `(期望 ${want})`}`);
+  if (!ok) fail++;
+}
+
 // ---- 2. Excel 导出（含图片） ----
 const loadPng = async (n) => fs.readFile(path.join(ROOT, "tests/images", n));
 
