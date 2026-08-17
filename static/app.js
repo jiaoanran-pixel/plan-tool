@@ -372,8 +372,8 @@ function collectForm() {
 async function savePlan(e) {
   e.preventDefault();
   const payload = collectForm();
-  if (!payload.load_date || !payload.truck_no) {
-    toast("装车日期和车号必填", "warn");
+  if (!payload.load_date || !payload.truck_no || !payload.plan_arrive) {
+    toast("装车日期、车号和计划到站日期必填", "warn");
     return;
   }
   const btn = $("#planForm button[type=submit]");

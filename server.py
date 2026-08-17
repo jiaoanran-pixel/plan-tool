@@ -749,6 +749,8 @@ def upsert_plan(data, plan_id=None):
             pass
 
     arrive = normalize_arrive(data.get("plan_arrive"), load_date)
+    if not arrive:
+        raise ValueError("计划到站日期必填")
 
     fields = {
         "load_date": load_date,
